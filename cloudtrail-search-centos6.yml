@@ -1,0 +1,39 @@
+---
+- hosts: all
+  sudo: true
+  vars:
+    locale: ja_JP.UTF-8
+    log_dir: '/tmp/cloudtrail'
+  vars_prompt:
+    - name: aws_access_key_id
+      prompt: "Please enter your aws_access_key_id"
+      private: no
+    - name: aws_secret_access_key
+      prompt: "Please enter your aws_secret_access_key(secret)"
+      private: yes
+    - name: cloudtrail_s3_path
+      prompt: "Please enabled CloudTrail s3 path ex.'xxcloudtrail/AWSLogs/7xxxxxxx5x3/CloudTrail/ap-northeast-1/2015/02'"
+      private: no
+  tasks:
+    - name: install python-setuptools
+      yum: name=python-setuptools state=installed
+    - name: easy_install pip
+      command: easy_install pip
+    - name: install aws-cli
+      command: pip install awscli
+    - name: install jq
+      command: curl -o /usr/bin/jq http://stedolan.github.io/jq/download/linux64/jq
+    - name: add execute permission jq
+      file: path=/usr/bin/jq mode="u=rxw,g=rx,o=rx"
+    - name: copy mongodb.repo
+      copy: src=repos/mongodb.repo dest=/etc/yum.repos.d/mongodb.repo owner=root
+    - name: install mongodb
+      yum: pkg=mongodb-org enablerepo=mongodb state=installed
+    - name: start mongodb
+      service: name=mongod state=started enabled=yes
+    - name: make to save CloudTrail log directory
+      file: dest={{log_dir}} state=directory
+    - name: get CloudTrail logs from s3
+      command: sh -c 'AWS_ACCESS_KEY_ID={{aws_access_key_id}} AWS_SECRET_ACCESS_KEY={{aws_secret_access_key}} aws s3 sync s3://{{cloudtrail_s3_path}} {{log_dir}}'
+    - name: insert CloudTrail log to MongoDB
+      command: sh -c 'for x in `find {{log_dir}} -name "*.json.gz"` ; do zcat $x | jq .Records[] | mongoimport --collection cloudtrail --jsonArray ; done'
